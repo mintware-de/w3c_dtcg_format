@@ -1,0 +1,23 @@
+name: w3c_dtcg_format
+description: >-
+  A Dart reader, validator, resolver and writer for the W3C Design Tokens
+  Community Group Format Module, revision 2025.10.
+version: 1.0.0
+repository: https://github.com/mintware-de/w3c_dtcg_format
+issue_tracker: https://github.com/mintware-de/w3c_dtcg_format/issues
+topics:
+  - design-tokens
+  - w3c
+  - dtcg
+  - tokens
+  - parser
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  collection: ^1.19.0
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.6

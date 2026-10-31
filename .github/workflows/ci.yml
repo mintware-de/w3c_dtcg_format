@@ -1,0 +1,142 @@
+# Actions are pinned to major-version tags (`@v4`, `@v1`); Dependabot keeps
+# them current. The actions used here are first-party (`dart-lang`,
+# `actions/*`) and widely audited, so SHA-pinning is not justified for a
+# library repo.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze & format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Verify formatting
+        run: dart format --output=none --set-exit-if-changed .
+      - name: Analyze
+        run: dart analyze --fatal-infos --fatal-warnings
+
+  test:
+    name: Test (${{ matrix.sdk }} / ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: ['3.13.7', stable, beta]
+        os: [ubuntu-latest]
+        include:
+          - sdk: stable
+            os: macos-latest
+          - sdk: stable
+            os: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ matrix.sdk }}
+      - name: Install dependencies
+        run: dart pub get
+      - name: Run tests
+        run: dart test --reporter expanded
+
+  coverage:
+    name: Coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Install coverage tool
+        run: dart pub global activate coverage
+      - name: Run tests with coverage
+        run: dart test --coverage=coverage
+      - name: Format coverage as lcov
+        run: |
+          dart pub global run coverage:format_coverage \
+            --lcov \
+            --in=coverage \
+            --out=coverage/lcov.info \
+            --packages=.dart_tool/package_config.json \
+            --report-on=lib
+      - name: Report coverage percentage
+        run: |
+          PCT=$(awk -F: '
+            /^LF:/ { lf += $2 }
+            /^LH:/ { lh += $2 }
+            END { if (lf > 0) printf "%.1f", (lh / lf) * 100; else print "0.0" }
+          ' coverage/lcov.info)
+          echo "## Coverage: ${PCT}%" >> "$GITHUB_STEP_SUMMARY"
+          echo "Line coverage: ${PCT}%"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-lcov
+          path: coverage/lcov.info
+          retention-days: 14
+
+  pana:
+    name: pana score
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Install pana
+        run: dart pub global activate pana
+      - name: Run pana
+        run: pana --no-warning --exit-code-threshold 10 --json > pana.json
+      - name: Report score
+        if: always()
+        run: |
+          if [ -f pana.json ]; then
+            SCORE=$(jq -r '"\(.scores.grantedPoints)/\(.scores.maxPoints)"' pana.json)
+            echo "## pana: ${SCORE}" >> "$GITHUB_STEP_SUMMARY"
+            echo "pana score: ${SCORE}"
+          fi
+
+  publish-dry-run:
+    name: Publish dry-run
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Dry-run publish
+        run: dart pub publish --dry-run
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+      - name: Install dependencies
+        run: dart pub get
+      - name: Build dartdoc with link validation
+        run: dart doc --validate-links
